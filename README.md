@@ -1,1 +1,2 @@
-# Proyecto-de-Porgramacion
+# Proyecto de Programación
+## Proposito y titulo del proyecto N-Siiau
