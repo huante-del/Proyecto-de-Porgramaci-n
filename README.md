@@ -5,7 +5,7 @@
 
 ### Integrantes del Equipo
 - **Diego Barba Mier Y Concha** (`225996364`) — *Modelado de Dispositivos y Operaciones Base*
-- **Jesús Emmanuel Guante Jiménez** (`222479008`) — *Gestión de Contenedores y Persistencia*
+- **Jesús Emmanuel Huante Jiménez** (`222479008`) — *Gestión de Contenedores y Persistencia*
 
 ---
 
