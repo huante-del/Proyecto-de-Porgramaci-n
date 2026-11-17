@@ -6,11 +6,14 @@ Reparto de Trabajo en este archivo:
     * Implementación completa de `registrar(objeto)` y `listar()` en `SistemaRed`.
     * Validaciones de registro (campos vacíos, formato de identificador y duplicados).
 - Jesús Emmanuel Huante Jiménez (222479008):
-    * Cimientos y esqueletos guiados (`# TODO`) para `RangoIP`, `SegmentoRed`, `Bitacora`,
+    * Implementación completa para `RangoIP`, `SegmentoRed`, `Bitacora`,
       `asignar(identificador, clave)`, `guardar(sistema, ruta)` y `cargar(sistema, ruta)`.
 """
 
 from typing import Optional
+from ipaddress import ip_address
+from datetime import datetime
+import json
 from modelos import Dispositivo, EquipoPersonal, Servidor, Responsable
 
 
@@ -65,10 +68,13 @@ class RangoIP:
         Returns:
             bool: True si la IP está en el rango, False en caso contrario.
         """
-        # TODO (Emmanuel): Implementar la verificación de si `ip` está entre `_ip_inicio` y `_ip_fin`
-        # Sugerencia: Puedes usar el módulo estándar `ipaddress.ip_address(ip)` de Python:
-        #   return ip_address(self._ip_inicio) <= ip_address(ip) <= ip_address(self._ip_fin)
-        raise NotImplementedError("TODO (Emmanuel): Implementar RangoIP.ip_esta_en_rango(ip)")
+        try:
+            ip_evaluar = ip_address(ip)
+            inicio = ip_address(self._ip_inicio)
+            fin = ip_address(self._ip_fin)
+            return inicio <= ip_evaluar <= fin
+        except ValueError:
+            return False
 
     def obtener_total_direcciones(self) -> int:
         """
@@ -77,10 +83,9 @@ class RangoIP:
         Returns:
             int: Cantidad total de direcciones IP en el rango.
         """
-        # TODO (Emmanuel): Calcular y retornar la cantidad de direcciones entre `_ip_inicio` y `_ip_fin`
-        # Sugerencia: int(ip_address(self._ip_fin)) - int(ip_address(self._ip_inicio)) + 1
-        raise NotImplementedError("TODO (Emmanuel): Implementar RangoIP.obtener_total_direcciones()")
-
+        inicio = int(ip_address(self._ip_inicio))
+        fin = int(ip_address(self._ip_fin))
+        return fin - inicio + 1
 
 class SegmentoRed:
     """
@@ -106,8 +111,11 @@ class SegmentoRed:
             capacidad_maxima (int): Límite máximo de dispositivos que puede alojar.
             rango_ip (RangoIP, opcional): Objeto RangoIP compuesto en este segmento.
         """
-        # TODO (Emmanuel): Si deseas agregar validaciones adicionales al crear el segmento
-        # (ej. que capacidad_maxima > 0 e id_segmento no esté vacío), hazlo aquí.
+        if not id_segmento or not id_segmento.strip():
+            raise ValueError("Rechazado: El identificador del segmento no puede estar vacío.")
+        if capacidad_maxima <= 0:
+            raise ValueError("Rechazado: La capacidad máxima del segmento debe ser mayor a 0.")
+        
         self._id_segmento: str = id_segmento
         self._nombre_segmento: str = nombre_segmento
         self._capacidad_maxima: int = capacidad_maxima
@@ -146,8 +154,7 @@ class SegmentoRed:
         Returns:
             int: Número de dispositivos en `self._dispositivos`.
         """
-        # TODO (Emmanuel): Retornar `len(self._dispositivos)`
-        raise NotImplementedError("TODO (Emmanuel): Implementar SegmentoRed.obtener_ocupacion_actual()")
+        return len(self._dispositivos)
 
     def verificar_capacidad(self) -> bool:
         """
@@ -156,8 +163,7 @@ class SegmentoRed:
         Returns:
             bool: True si `obtener_ocupacion_actual() < self._capacidad_maxima`, False si ya está lleno.
         """
-        # TODO (Emmanuel): Comparar la ocupación actual contra `self._capacidad_maxima`
-        raise NotImplementedError("TODO (Emmanuel): Implementar SegmentoRed.verificar_capacidad()")
+        return self.obtener_ocupacion_actual() < self._capacidad_maxima
 
     def agregar_dispositivo(self, dispositivo: Dispositivo) -> bool:
         """
@@ -176,14 +182,28 @@ class SegmentoRed:
                 2. Si el segmento ya llegó a su límite de direcciones
                    (Tabla 5: "Rechazarlo informando que se superó el cupo máximo permitido").
         """
-        # TODO (Emmanuel): Implementar la lógica de asignación dentro del contenedor:
-        # Paso 1: Verificar si `dispositivo.id_dispositivo` ya está en `[d.id_dispositivo for d in self._dispositivos]`.
-        #         Si ya está, lanzar `ValueError("Rechazado: El dispositivo ya ocupa una dirección en este segmento de red.")`
-        # Paso 2: Verificar si `not self.verificar_capacidad()`.
-        #         Si no hay cupo, lanzar `ValueError("Rechazado: Se superó el cupo máximo permitido en el segmento de red.")`
-        # Paso 3: Hacer `self._dispositivos.append(dispositivo)` y retornar `True`.
-        raise NotImplementedError("TODO (Emmanuel): Implementar SegmentoRed.agregar_dispositivo(dispositivo)")
+        # Paso 1: Revisar que el dispositivo no esté repetido en este mismo segmento
+        ids_actuales = [d.id_dispositivo for d in self._dispositivos]
+        if dispositivo.id_dispositivo in ids_actuales:
+            raise ValueError(
+                "Rechazado: El dispositivo ya ocupa una dirección en este segmento de red."
+            )
 
+        # Paso 2: Revisar que aún quede lugar disponible en el segmento
+        if not self.verificar_capacidad():
+            raise ValueError(
+                "Rechazado: Se superó el cupo máximo permitido en el segmento de red."
+            )
+
+        # Paso 3: Si el segmento tiene un RangoIP definido, validar la IP del equipo
+        if self._rango_ip is not None and not self._rango_ip.ip_esta_en_rango(dispositivo.direccion_ip):
+            raise ValueError(
+                f"Rechazado: La IP '{dispositivo.direccion_ip}' está fuera del rango permitido "
+                f"({self._rango_ip.ip_inicio} - {self._rango_ip.ip_fin})."
+            )
+
+        # Paso 4: Si pasó todos los filtros, guardarlo en la lista y confirmar
+        self._dispositivos.append(dispositivo)
 
 class Bitacora:
     """
@@ -209,11 +229,10 @@ class Bitacora:
         Args:
             descripcion_evento (str): Mensaje descriptivo del evento ocurrido.
         """
-        # TODO (Emmanuel): Puedes enriquecer este método con fecha/hora (`datetime.now()`)
-        # o persistirlo en archivo si lo deseas. Por ahora almacena en memoria para no bloquear `registrar()`.
         if descripcion_evento and isinstance(descripcion_evento, str):
-            self._eventos.append(descripcion_evento.strip())
-
+            marca_tiempo = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self._eventos.append(f"[{marca_tiempo}] {descripcion_evento.strip()}")
+            
     def obtener_historial(self) -> list[str]:
         """
         Devuelve todo el historial de eventos registrados.
@@ -376,11 +395,32 @@ class SistemaRed:
         Returns:
             bool: True si la asignación fue exitosa.
         """
-        # TODO (Emmanuel): Implementar las 4 validaciones de asignación listadas en el docstring
-        # y registrar el evento en `self._bitacora.registrar_evento(...)`.
-        raise NotImplementedError(
-            "TODO (Emmanuel): Implementar SistemaRed.asignar(identificador, clave)"
+        # Validación 1: Verificar que el segmento de red exista en el sistema
+        if clave not in self._segmentos:
+            raise ValueError(
+                f"Rechazado: La clave del contenedor '{clave}' no fue encontrada en el sistema."
+            )
+
+        # Validación 2: Verificar que el dispositivo ya haya sido dado de alta con registrar()
+        if identificador not in self._dispositivos:
+            raise ValueError(
+                f"Rechazado: El dispositivo '{identificador}' no está registrado. "
+                "Debes darlo de alta previamente mediante registrar()."
+            )
+
+        # Recuperamos ambos objetos desde sus diccionarios
+        segmento = self._segmentos[clave]
+        dispositivo = self._dispositivos[identificador]
+
+        # Validaciones 3 y 4: Delegamos en el segmento (él revisa duplicados, cupo y rango IP)
+        segmento.agregar_dispositivo(dispositivo)
+
+        # Si agregar_dispositivo no lanzó ningún ValueError, registramos el éxito en la bitácora
+        self._bitacora.registrar_evento(
+            f"ASIGNACIÓN: Dispositivo {dispositivo.id_dispositivo} ({dispositivo.nombre_host}) "
+            f"asignado al segmento {segmento.id_segmento} ({segmento.nombre_segmento})."
         )
+        return True
 
     def guardar(self, ruta: str) -> None:
         """
@@ -420,11 +460,42 @@ def guardar(sistema: SistemaRed, ruta: str) -> None:
         sistema (SistemaRed): Instancia del sistema de red a persistir.
         ruta (str): Ruta del archivo de salida (ej. 'red_estado.json').
     """
-    # TODO (Emmanuel): Implementar la persistencia en archivo (ej. usando `import json`).
-    # Pista: Cada `Dispositivo` ya cuenta con el método `.obtener_resumen()` programado por Diego
-    # que devuelve un `dict` listo para serializar con `json.dump(..., indent=4, ensure_ascii=False)`.
-    raise NotImplementedError("TODO (Emmanuel): Implementar guardar(sistema, ruta)")
+    # 1. Convertir cada dispositivo a diccionario usando el método de Diego
+    lista_dispositivos = [
+        disp.obtener_resumen() for disp in sistema.dispositivos.values()
+    ]
 
+    # 2. Convertir cada segmento (incluyendo su RangoIP y los IDs de sus dispositivos asignados)
+    lista_segmentos = []
+    for seg in sistema.segmentos.values():
+        rango_dict = None
+        if seg.rango_ip is not None:
+            rango_dict = {
+                "ip_inicio": seg.rango_ip.ip_inicio,
+                "ip_fin": seg.rango_ip.ip_fin,
+                "mascara_subred": seg.rango_ip.mascara_subred,
+            }
+
+        lista_segmentos.append(
+            {
+                "id_segmento": seg.id_segmento,
+                "nombre_segmento": seg.nombre_segmento,
+                "capacidad_maxima": seg.capacidad_maxima,
+                "rango_ip": rango_dict,
+                "dispositivos_asignados": [d.id_dispositivo for d in seg.dispositivos],
+            }
+        )
+
+    # 3. Armar el paquete completo del sistema
+    datos_sistema = {
+        "dispositivos": lista_dispositivos,
+        "segmentos": lista_segmentos,
+        "bitacora": sistema.bitacora.obtener_historial(),
+    }
+
+    # 4. Escribir en el archivo JSON
+    with open(ruta, "w", encoding="utf-8") as archivo:
+        json.dump(datos_sistema, archivo, indent=4, ensure_ascii=False)
 
 def cargar(sistema: SistemaRed, ruta: str) -> bool:
     """
@@ -442,15 +513,90 @@ def cargar(sistema: SistemaRed, ruta: str) -> bool:
         bool: True si el archivo existía y se cargó correctamente;
               False si el archivo no existe (arranque limpio sin colapsar).
     """
-    # TODO (Emmanuel): Implementar la lectura desde archivo asegurando el Arranque Limpio:
-    # Pista:
-    #   try:
-    #       with open(ruta, "r", encoding="utf-8") as archivo:
-    #           datos = json.load(archivo)
-    #           # Reconstruir objetos EquipoPersonal, Servidor y SegmentoRed dentro de `sistema`
-    #           return True
-    #   except FileNotFoundError:
-    #       # Arranque limpio: informar que no hay archivo previo e iniciar con el sistema vacío
-    #       return False
-    raise NotImplementedError("TODO (Emmanuel): Implementar cargar(sistema, ruta) con Arranque Limpio")
+    try:
+        with open(ruta, "r", encoding="utf-8") as archivo:
+            datos = json.load(archivo)
+    except FileNotFoundError:
+        return False
 
+    # Limpiamos el estado actual antes de reconstruir para evitar duplicados
+    sistema._dispositivos.clear()
+    sistema._segmentos.clear()
+    sistema._bitacora._eventos.clear()
+
+    # 1. Reconstruir todos los dispositivos y registrarlos en el sistema
+    for item in datos.get("dispositivos", []):
+        # Reconstruir responsable (puede venir como dict de Responsable o como str)
+        resp_raw = item["responsable"]
+        if isinstance(resp_raw, dict):
+            responsable = Responsable(
+                id_empleado=resp_raw["id_empleado"],
+                nombre=resp_raw["nombre"],
+                correo=resp_raw.get("correo", ""),
+                departamento=resp_raw.get("departamento", ""),
+            )
+        else:
+            responsable = resp_raw
+
+        tipo = item.get("tipo_clase")
+        if tipo == "EquipoPersonal":
+            dispositivo = EquipoPersonal(
+                id_dispositivo=item["id_dispositivo"],
+                nombre_host=item["nombre_host"],
+                direccion_mac=item["direccion_mac"],
+                direccion_ip=item["direccion_ip"],
+                responsable=responsable,
+                tipo_equipo=item["tipo_equipo"],
+                sistema_operativo=item["sistema_operativo"],
+            )
+        elif tipo == "Servidor":
+            dispositivo = Servidor(
+                id_dispositivo=item["id_dispositivo"],
+                nombre_host=item["nombre_host"],
+                direccion_mac=item["direccion_mac"],
+                direccion_ip=item["direccion_ip"],
+                responsable=responsable,
+                rol_servidor=item["rol_servidor"],
+                puerto_servicio=int(item["puerto_servicio"]),
+                es_critico=bool(item.get("es_critico", False)),
+            )
+        else:
+            dispositivo = Dispositivo(
+                id_dispositivo=item["id_dispositivo"],
+                nombre_host=item["nombre_host"],
+                direccion_mac=item["direccion_mac"],
+                direccion_ip=item["direccion_ip"],
+                responsable=responsable,
+            )
+
+        sistema.registrar(dispositivo)
+
+    # 2. Reconstruir los segmentos de red y re-asignar sus dispositivos
+    for seg_data in datos.get("segmentos", []):
+        rango_obj = None
+        if seg_data.get("rango_ip") is not None:
+            r = seg_data["rango_ip"]
+            rango_obj = RangoIP(
+                ip_inicio=r["ip_inicio"],
+                ip_fin=r["ip_fin"],
+                mascara_subred=r["mascara_subred"],
+            )
+
+        segmento = SegmentoRed(
+            id_segmento=seg_data["id_segmento"],
+            nombre_segmento=seg_data["nombre_segmento"],
+            capacidad_maxima=int(seg_data["capacidad_maxima"]),
+            rango_ip=rango_obj,
+        )
+        sistema.agregar_segmento(segmento)
+
+        # Volver a vincular los dispositivos que pertenecían a este segmento
+        for id_disp in seg_data.get("dispositivos_asignados", []):
+            if id_disp in sistema.dispositivos:
+                sistema.asignar(id_disp, segmento.id_segmento)
+
+    # 3. Restaurar el historial exacto de la bitácora que estaba guardado
+    if "bitacora" in datos:
+        sistema._bitacora._eventos = list(datos["bitacora"])
+
+    return True
