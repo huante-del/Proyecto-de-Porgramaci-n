@@ -10,7 +10,7 @@ Reparto de Trabajo en este archivo:
       `asignar(identificador, clave)`, `guardar(sistema, ruta)` y `cargar(sistema, ruta)`.
 """
 
-from typing import Optional
+from typing import Optional, Union
 from ipaddress import ip_address
 from datetime import datetime
 import json
@@ -204,6 +204,7 @@ class SegmentoRed:
 
         # Paso 4: Si pasó todos los filtros, guardarlo en la lista y confirmar
         self._dispositivos.append(dispositivo)
+        return True
 
 class Bitacora:
     """
@@ -252,7 +253,7 @@ class SistemaRed:
     """
     Orquesta las operaciones principales del contrato aplicando las reglas de negocio:
     - registrar(objeto) y listar() -> Implementados por Diego Barba.
-    - asignar(identificador, clave), guardar(ruta) y cargar(ruta) -> Cimientos para Emmanuel Huante.
+    - asignar(identificador, clave), guardar(ruta) y cargar(ruta) -> Implementados por Emmanuel Huante.
     """
 
     def __init__(self) -> None:
@@ -283,31 +284,47 @@ class SistemaRed:
     # MÉTODOS DEL CONTRATO: DIEGO BARBA (Modelado y Operaciones Base)
     # -----------------------------------------------------------------
 
-    def registrar(self, objeto: Dispositivo) -> bool:
+    def registrar(self, objeto: Union[Dispositivo, SegmentoRed]) -> bool:
         """
-        Registra (da de alta) un dispositivo en el sistema aplicando todas las
-        validaciones de negocio correspondientes al registro.
+        Registra (da de alta) un dispositivo o un segmento de red en el sistema
+        aplicando todas las validaciones de negocio correspondientes al registro.
 
         Validaciones aplicadas (Sección 5 del Hito 1):
-        1. Verifica que `objeto` sea una instancia válida de `Dispositivo` (o sus clases hijas).
-        2. Verifica que el responsable o dueño no esté en blanco.
-        3. Verifica que el identificador tenga el formato y longitud esperados (8 caracteres: DEV-/SRV-/EQP- + 4 dígitos).
-        4. Previene identificadores duplicados rechazando si el `id_dispositivo` ya fue guardado previamente.
+        - Si `objeto` es un `SegmentoRed`:
+          1. Verifica que su `id_segmento` no exista previamente en el sistema.
+          2. Lo registra en el catálogo de segmentos y en la bitácora.
+        - Si `objeto` es un `Dispositivo` (o clase hija `EquipoPersonal`/`Servidor`):
+          1. Verifica que el responsable o dueño no esté en blanco.
+          2. Verifica que el identificador tenga el formato y longitud esperados
+             (8 caracteres: DEV-/SRV-/EQP- + 4 dígitos).
+          3. Previene identificadores duplicados rechazando si el `id_dispositivo` ya existe.
 
         Args:
-            objeto (Dispositivo): Instancia de Dispositivo, EquipoPersonal o Servidor.
+            objeto (Dispositivo | SegmentoRed): Instancia de Dispositivo, EquipoPersonal,
+                Servidor o SegmentoRed.
 
         Returns:
-            bool: True si el dispositivo fue registrado exitosamente.
+            bool: True si el objeto fue registrado exitosamente.
 
         Raises:
-            TypeError: Si el objeto recibido no es una instancia de Dispositivo.
+            TypeError: Si el objeto recibido no es ni `Dispositivo` ni `SegmentoRed`.
             ValueError: Si falla cualquiera de las validaciones de negocio del registro.
         """
+        if isinstance(objeto, SegmentoRed):
+            if objeto.id_segmento in self._segmentos:
+                raise ValueError(
+                    f"Rechazado: El segmento '{objeto.id_segmento}' ya existe previamente guardado en el sistema."
+                )
+            self._segmentos[objeto.id_segmento] = objeto
+            self._bitacora.registrar_evento(
+                f"ALTA SEGMENTO: {objeto.id_segmento} ({objeto.nombre_segmento}, cupo máx: {objeto.capacidad_maxima})."
+            )
+            return True
+
         if not isinstance(objeto, Dispositivo):
             raise TypeError(
-                "Rechazado: Solo se pueden registrar objetos que hereden de la clase 'Dispositivo' "
-                "(como EquipoPersonal o Servidor)."
+                "Rechazado: Solo se pueden registrar objetos que hereden de 'Dispositivo' "
+                "(como EquipoPersonal o Servidor) o instancias de 'SegmentoRed'."
             )
 
         # Re-verificación defensiva de responsable obligatorio
@@ -342,13 +359,19 @@ class SistemaRed:
 
     def listar(self) -> list[str]:
         """
-        Lista todos los dispositivos registrados en el sistema invocando
+        Imprime y retorna todos los dispositivos registrados en el sistema invocando
         de manera polimórfica el método `describir()` de cada objeto.
 
         Returns:
             list[str]: Lista con las descripciones polimórficas de todos los dispositivos registrados.
         """
-        return [dispositivo.describir() for dispositivo in self._dispositivos.values()]
+        descripciones = [dispositivo.describir() for dispositivo in self._dispositivos.values()]
+        if not descripciones:
+            print("No hay dispositivos registrados en el sistema.")
+        else:
+            for idx, desc in enumerate(descripciones, start=1):
+                print(f"  {idx}. {desc}")
+        return descripciones
 
     # -----------------------------------------------------------------
     # MÉTODOS AUXILIARES Y DEL CONTRATO: EMMANUEL HUANTE

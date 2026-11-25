@@ -10,9 +10,11 @@ Este script ejecuta de principio a fin:
 2. El listado polimórfico mediante `sistema.listar()` e invocación de `describir()`.
 3. Las pruebas de validación ("rompiendo" las reglas del registro) para demostrar que
    el programa rechaza entradas inválidas con mensajes claros y sin errores nativos inesperados.
-4. El bloque preparado para probar la parte de Emmanuel (`asignar`, `guardar`, `cargar`).
+4. Las pruebas de contenedores (`SegmentoRed`), asignación (`asignar`) con sus validaciones,
+   y persistencia (`guardar`, `cargar` y arranque limpio sin archivo previo).
 """
 
+import os
 from modelos import Dispositivo, EquipoPersonal, Servidor, Responsable
 from sistema import SistemaRed, SegmentoRed, RangoIP, guardar, cargar
 
@@ -97,9 +99,7 @@ def ejecutar_pruebas_diego(sistema: SistemaRed) -> None:
     # DEMOSTRACIÓN DE POLIMORFISMO Y LISTAR()
     # -----------------------------------------------------------------
     imprimir_encabezado("2. LISTADO POLIMÓRFICO DE DISPOSITIVOS (sistema.listar() -> describir())")
-    descripciones = sistema.listar()
-    for idx, desc in enumerate(descripciones, start=1):
-        print(f"  {idx}. {desc}")
+    sistema.listar()
 
     print("\n  [Métodos específicos de las clases hijas]:")
     print(f"  - Solicitud VPN ({laptop_dev.id_dispositivo}): {'Aprobada' if laptop_dev.solicitar_acceso_vpn() else 'Rechazada'}")
@@ -161,11 +161,10 @@ def ejecutar_pruebas_diego(sistema: SistemaRed) -> None:
 
 def ejecutar_pruebas_emmanuel(sistema: SistemaRed) -> None:
     """
-    Bloque preparado para probar los contenedores (`SegmentoRed`) y métodos
-    de Emmanuel (`asignar`, `guardar`, `cargar`). Mientras estén con `NotImplementedError`,
-    muestra el estado de los cimientos sin colapsar el programa.
+    Ejecuta las pruebas completas de contenedores (`SegmentoRed`), asignación (`asignar`),
+    validaciones de asignación, persistencia (`guardar`, `cargar`) y arranque limpio.
     """
-    imprimir_encabezado("4. CIMIENTOS PARA CONTENEDORES Y PERSISTENCIA (Sección de Emmanuel Huante)")
+    imprimir_encabezado("4. CONTENEDORES, ASIGNACIÓN Y PERSISTENCIA (Sección de Emmanuel Huante)")
 
     rango_lan = RangoIP("192.168.10.1", "192.168.10.254", "255.255.255.0")
     segmento_lan = SegmentoRed(
@@ -174,23 +173,72 @@ def ejecutar_pruebas_emmanuel(sistema: SistemaRed) -> None:
         capacidad_maxima=2,
         rango_ip=rango_lan,
     )
-    sistema.agregar_segmento(segmento_lan)
+    sistema.registrar(segmento_lan)
     print(
-        f"[OK] Contenedor creado y registrado en el sistema: "
+        f"[OK] Contenedor creado y registrado en el sistema mediante registrar(): "
         f"{segmento_lan.id_segmento} ('{segmento_lan.nombre_segmento}', cupo máx: {segmento_lan.capacidad_maxima})"
     )
 
+    # Asignaciones válidas (llenando el cupo máximo de 2)
+    sistema.asignar("EQP-0001", "SEG-LAN1")
+    print("[OK] Dispositivo EQP-0001 asignado exitosamente a SEG-LAN1.")
+    sistema.asignar("DEV-0002", "SEG-LAN1")
+    print("[OK] Dispositivo DEV-0002 asignado exitosamente a SEG-LAN1.")
+
+    # Validaciones de asignación
+    print("\n[Prueba 4.1] Asignar dispositivo a segmento inexistente ('SEG-NOEXISTE'):")
+    try:
+        sistema.asignar("EQP-0001", "SEG-NOEXISTE")
+    except ValueError as err:
+        print(f"  -> [RECHAZO CONTROLADO]: {err}")
+
+    print("\n[Prueba 4.2] Asignar dispositivo no registrado ('DEV-9999'):")
+    try:
+        sistema.asignar("DEV-9999", "SEG-LAN1")
+    except ValueError as err:
+        print(f"  -> [RECHAZO CONTROLADO]: {err}")
+
+    print("\n[Prueba 4.3] Asignar dispositivo duplicado en el mismo segmento ('EQP-0001'):")
     try:
         sistema.asignar("EQP-0001", "SEG-LAN1")
-        print("[OK] Dispositivo EQP-0001 asignado exitosamente a SEG-LAN1.")
-    except NotImplementedError as pendiente:
-        print(f"[PENDIENTE EMMANUEL] -> {pendiente}")
+    except ValueError as err:
+        print(f"  -> [RECHAZO CONTROLADO]: {err}")
 
+    print("\n[Prueba 4.4] Superar cupo máximo del segmento ('SEG-LAN1' ya tiene 2/2):")
+    extra = EquipoPersonal(
+        id_dispositivo="EQP-0003",
+        nombre_host="laptop-extra",
+        direccion_mac="AA:BB:CC:DD:EE:03",
+        direccion_ip="192.168.10.30",
+        responsable="Ana López",
+        tipo_equipo="Laptop",
+        sistema_operativo="Fedora 40",
+    )
+    sistema.registrar(extra)
     try:
-        guardar(sistema, "estado_red.json")
-        cargar(sistema, "estado_red.json")
-    except NotImplementedError as pendiente:
-        print(f"[PENDIENTE EMMANUEL] -> {pendiente}")
+        sistema.asignar("EQP-0003", "SEG-LAN1")
+    except ValueError as err:
+        print(f"  -> [RECHAZO CONTROLADO]: {err}")
+
+    # Persistencia: guardar, recargar en un sistema nuevo y arranque limpio
+    ruta_datos = "estado_red.json"
+    guardar(sistema, ruta_datos)
+    print(f"\n[OK] Estado guardado en '{ruta_datos}'.")
+
+    sistema_recargado = SistemaRed()
+    cargo_ok = cargar(sistema_recargado, ruta_datos)
+    print(
+        f"[OK] Estado recargado en nueva instancia (cargar={cargo_ok}): "
+        f"{len(sistema_recargado.dispositivos)} dispositivos, "
+        f"{len(sistema_recargado.segmentos)} segmento(s)."
+    )
+
+    sistema_limpio = SistemaRed()
+    archivo_inexistente = "archivo_que_no_existe.json"
+    if os.path.exists(archivo_inexistente):
+        os.remove(archivo_inexistente)
+    arranque_limpio = cargar(sistema_limpio, archivo_inexistente)
+    print(f"[OK] Arranque limpio sin archivo previo (cargar={arranque_limpio}): sin errores.")
 
 
 def main() -> None:
